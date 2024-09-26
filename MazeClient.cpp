@@ -1,89 +1,50 @@
 #include <iostream>
 #include <boost/asio.hpp>
-#include <thread>
-#include <chrono>
 
 using boost::asio::ip::tcp;
+using namespace std;
 
-class MazeClient {
-public:
-    MazeClient(const std::string& host, const std::string& port) 
-        : resolver_(io_context_), socket_(io_context_) {
-        connect(host, port);
-    }
+int main() {
+    try {
+        boost::asio::io_context io_context;
+        tcp::socket socket(io_context);
+        tcp::resolver resolver(io_context);
 
-    void run() {
-        std::thread readThread([this]() { read_from_server(); });
-        std::thread inputThread([this]() { send_commands(); });
+        // Connect to the server running on localhost at port 12345
+        boost::asio::connect(socket, resolver.resolve("127.0.0.1", "12345"));
 
-        readThread.join();
-        inputThread.join();
-    }
-
-private:
-    void connect(const std::string& host, const std::string& port) {
-        boost::asio::connect(socket_, resolver_.resolve(host, port));
-        std::cout << "Connected to the maze server." << std::endl;
-    }
-
-    void send_commands() {
-        std::string command;
+        // Loop to continuously accept and send commands
         while (true) {
-            std::cout << "Enter command (W, A, S, D or 'exit' to quit): ";
+            std::string command;
+            std::cout << "Enter command (W/A/S/D for movement, 'find' to find nearest coin, 'kill' to stop): ";
             std::getline(std::cin, command);
+            
+            command += '\n';  // Append newline to send
 
-            if (command == "exit") {
+            // Send the command to the server
+            boost::asio::write(socket, boost::asio::buffer(command));
+
+            // If the command is 'kill', exit the loop and stop the client
+            if (command == "kill\n") {
+                std::cout << "Shutting down client..." << std::endl;
                 break;
             }
 
-            command += '\n'; // Add newline character for the server to recognize the end of input
-            boost::asio::write(socket_, boost::asio::buffer(command));
+            // Read server's response, including the maze, until the "<END>" marker is found
+            boost::asio::streambuf buffer;
+            boost::asio::read_until(socket, buffer, "<END>\n");  // Read until the end marker
 
-            // Add a short sleep to prevent spamming the server
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-        socket_.close();
-    }
-
-    void read_from_server() {
-        try {
-            while (true) {
-                boost::asio::streambuf buffer;
-                boost::asio::read_until(socket_, buffer, '\n');
-
-                std::istream is(&buffer);
-                std::string response;
-                std::getline(is, response);
-                std::cout << response << std::endl;
-
-                // Check if the maze update has multiple lines
-                while (std::getline(is, response)) {
-                    std::cout << response << std::endl;
-                }
+            // Output the server's response and maze
+            std::istream response_stream(&buffer);
+            std::string response_line;
+            while (std::getline(response_stream, response_line)) {
+                if (response_line == "<END>") break;  // Stop when the end marker is encountered
+                std::cout << response_line << std::endl;
             }
-        } catch (std::exception& e) {
-            std::cerr << "Exception in read_from_server: " << e.what() << std::endl;
         }
-    }
-
-    boost::asio::io_context io_context_;
-    tcp::resolver resolver_;
-    tcp::socket socket_;
-};
-
-int main(int argc, char* argv[]) {
-    try {
-        if (argc != 3) {
-            std::cerr << "Usage: MazeClient <host> <port>\n";
-            return 1;
-        }
-
-        MazeClient client(argv[1], argv[2]);
-        client.run();
     } catch (std::exception& e) {
         std::cerr << "Exception: " << e.what() << std::endl;
     }
 
     return 0;
 }
-
