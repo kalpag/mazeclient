@@ -1,59 +1,89 @@
 #include <iostream>
 #include <boost/asio.hpp>
-#include <string>
+#include <thread>
+#include <chrono>
 
 using boost::asio::ip::tcp;
 
 class MazeClient {
 public:
-    MazeClient(boost::asio::io_context& io_context, const std::string& host, const std::string& port)
-        : socket_(io_context) {
-        tcp::resolver resolver(io_context);
-        boost::asio::connect(socket_, resolver.resolve(host, port));
+    MazeClient(const std::string& host, const std::string& port) 
+        : resolver_(io_context_), socket_(io_context_) {
+        connect(host, port);
     }
 
-    void play() {
-        while (true) {
-            std::cout << "Enter command (W, S, A, D, path to nearest coin, exit to quit): ";
-            std::string command;
-            std::getline(std::cin, command);
+    void run() {
+        std::thread readThread([this]() { read_from_server(); });
+        std::thread inputThread([this]() { send_commands(); });
 
-            // Check if the player wants to exit the game
-            if (command == "exit" || command == "quit") {
-                std::cout << "Exiting the game. Goodbye!\n";
-                break;  // Exit the game loop
-            }
-
-            // Send command to the server
-            boost::asio::write(socket_, boost::asio::buffer(command + "\n"));
-
-            // Read server response
-            boost::asio::streambuf response;
-            boost::asio::read_until(socket_, response, '\n');
-            std::istream is(&response);
-            std::string reply;
-            std::getline(is, reply);
-            std::cout << "Server reply: " << reply << std::endl;
-
-            // If the response indicates victory, exit the loop
-            if (reply == "Victory!\n") {
-                std::cout << "Game over, you collected all the coins!" << std::endl;
-                break;
-            }
-        }
+        readThread.join();
+        inputThread.join();
     }
 
 private:
+    void connect(const std::string& host, const std::string& port) {
+        boost::asio::connect(socket_, resolver_.resolve(host, port));
+        std::cout << "Connected to the maze server." << std::endl;
+    }
+
+    void send_commands() {
+        std::string command;
+        while (true) {
+            std::cout << "Enter command (W, A, S, D or 'exit' to quit): ";
+            std::getline(std::cin, command);
+
+            if (command == "exit") {
+                break;
+            }
+
+            command += '\n'; // Add newline character for the server to recognize the end of input
+            boost::asio::write(socket_, boost::asio::buffer(command));
+
+            // Add a short sleep to prevent spamming the server
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        socket_.close();
+    }
+
+    void read_from_server() {
+        try {
+            while (true) {
+                boost::asio::streambuf buffer;
+                boost::asio::read_until(socket_, buffer, '\n');
+
+                std::istream is(&buffer);
+                std::string response;
+                std::getline(is, response);
+                std::cout << response << std::endl;
+
+                // Check if the maze update has multiple lines
+                while (std::getline(is, response)) {
+                    std::cout << response << std::endl;
+                }
+            }
+        } catch (std::exception& e) {
+            std::cerr << "Exception in read_from_server: " << e.what() << std::endl;
+        }
+    }
+
+    boost::asio::io_context io_context_;
+    tcp::resolver resolver_;
     tcp::socket socket_;
 };
 
-int main() {
+int main(int argc, char* argv[]) {
     try {
-        std::cout << "Maze Client Running...." << std::endl;
-        boost::asio::io_context io_context;
-        MazeClient client(io_context, "127.0.0.1", "12345");
-        client.play();
+        if (argc != 3) {
+            std::cerr << "Usage: MazeClient <host> <port>\n";
+            return 1;
+        }
+
+        MazeClient client(argv[1], argv[2]);
+        client.run();
     } catch (std::exception& e) {
         std::cerr << "Exception: " << e.what() << std::endl;
     }
+
+    return 0;
 }
+
