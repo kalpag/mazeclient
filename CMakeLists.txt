@@ -10,19 +10,18 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 
 # Add the executable target and link the source files
-add_executable(mgclient
+add_executable(mazeclient
     MazeClient.cpp
-   # MazeServer.cpp
 )
 
 # Find and link necessary libraries (CPR, Boost, etc.)
 find_package(Boost REQUIRED COMPONENTS system thread)
 
 # Link libraries to the target executable
-target_link_libraries(mgclient
+target_link_libraries(mazeclient
     Boost::system
     Boost::thread
 )
 
 # Specify where the target binary should be placed after build
-set_target_properties(mgclient PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+set_target_properties(mazeclient PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
